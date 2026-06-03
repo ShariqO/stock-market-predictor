@@ -1,0 +1,96 @@
+# ============================================================
+# NASDAQ Day Trading Predictor — Configuration
+# ============================================================
+# Phase 1: local mode  |  Phase 2: aws mode
+# Switch the 'mode' key to control storage backend.
+# ============================================================
+
+mode: local  # local | aws
+
+# ── Local storage ──────────────────────────────────────────
+local:
+  lake_root: "./_lake"
+
+# ── AWS (Phase 2) ─────────────────────────────────────────
+aws:
+  s3_bucket: "${S3_BUCKET}"          # set via env var
+  region: "us-east-1"
+
+  # Glue Data Catalog
+  glue_database: "stock_predictor"
+
+  # ECR
+  ecr_repository: "stock-predictor"
+
+  # ECS Fargate
+  ecs_cluster: "stock-predictor-cluster"
+  ecs_task_family: "stock-predictor"
+  ecs_cpu: "256"                     # 0.25 vCPU
+  ecs_memory: "512"                  # 0.5 GB
+
+  # CloudWatch
+  log_group: "/ecs/stock-predictor"
+  log_stream_prefix: "pipeline"
+
+  # Networking (default VPC)
+  vpc_subnets: "${VPC_SUBNETS}"      # comma-separated subnet IDs
+  security_groups: "${SECURITY_GROUP}"
+
+# ── Ticker universe ───────────────────────────────────────
+universe:
+  # Target sectors (yfinance sector field)
+  sectors:
+    - "Technology"
+    - "Healthcare"
+    - "Communication Services"   # Gaming companies live here
+  # Target industries for Gaming (yfinance industry field)
+  gaming_industries:
+    - "Electronic Gaming & Multimedia"
+    - "Interactive Media & Services"
+  # Ticker types to exclude (yfinance quoteType field)
+  exclude_quote_types:
+    - "ETF"
+    - "MUTUALFUND"
+    - "WARRANT"
+  # Patterns in ticker or name that indicate non-common stock
+  exclude_name_patterns:
+    - " Warrant"
+    - " Right"
+    - " Unit"
+    - " Preferred"
+  exclude_ticker_patterns:
+    - "W$"    # warrants often end in W
+    - "R$"    # rights
+    - "U$"    # units
+    - "P$"    # preferred
+
+# ── Data ingestion ────────────────────────────────────────
+ingestion:
+  lookback_days: 180       # calendar days of OHLCV history
+  batch_size: 50           # tickers per yfinance.download batch
+  retry_attempts: 3
+  retry_delay_seconds: 5
+
+# ── Feature engineering ───────────────────────────────────
+features:
+  min_lookback_rows: 60    # minimum trading days needed
+  rolling_windows:
+    short: 5
+    medium: 10
+    long: 20
+    extra_long: 50
+  rsi_period: 14
+  atr_period: 14
+
+# ── ML model ──────────────────────────────────────────────
+model:
+  target_move_dollars: 1.0     # minimum intraday move (open→high)
+  top_k: 5                     # number of top picks
+  max_iter: 1000               # LogisticRegression max iterations
+  random_state: 42
+  test_days: 30                # days reserved for backtesting
+
+# ── Logging ───────────────────────────────────────────────
+logging:
+  level: "INFO"                # DEBUG | INFO | WARNING | ERROR
+  format: "%(asctime)s | %(name)-25s | %(levelname)-7s | %(message)s"

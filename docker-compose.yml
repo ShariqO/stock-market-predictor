@@ -1,0 +1,45 @@
+# ============================================================
+# NASDAQ Day Trading Predictor — Docker Compose
+# ============================================================
+# Services:
+#   predictor  — Runs the prediction pipeline
+#   dashboard  — Runs the Streamlit dashboard
+#
+# Usage:
+#   docker compose build
+#   docker compose run predictor python main_orchestrator.py
+#   docker compose run predictor python jobs/job_ingest_prices.py
+#   docker compose run predictor python jobs/job_build_features.py
+#   docker compose run predictor python jobs/job_predict.py
+#   docker compose up dashboard
+# ============================================================
+
+services:
+  predictor:
+    build: .
+    container_name: stock-predictor
+    env_file:
+      - .env
+    volumes:
+      - ./_lake:/app/_lake
+      - ./config.yaml:/app/config.yaml:ro
+    environment:
+      - MODE=local
+      - LOG_LEVEL=INFO
+      - PYTHONPATH=/app
+
+  dashboard:
+    build: .
+    container_name: stock-dashboard
+    ports:
+      - "8501:8501"
+    env_file:
+      - .env
+    volumes:
+      - ./_lake:/app/_lake:ro
+      - ./config.yaml:/app/config.yaml:ro
+      - ./dashboard:/app/dashboard:ro
+    environment:
+      - MODE=local
+      - PYTHONPATH=/app
+    command: streamlit run dashboard/app.py --server.port=8501 --server.address=0.0.0.0 --server.headless=true

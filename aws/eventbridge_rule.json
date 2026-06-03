@@ -1,0 +1,43 @@
+{
+  "Comment": "EventBridge rule to run the stock predictor pipeline weekdays at 9 AM Eastern",
+  "Rule": {
+    "Name": "stock-predictor-weekday-9am",
+    "Description": "Run NASDAQ Day Trading Predictor pipeline weekdays at 9:00 AM ET",
+    "ScheduleExpression": "cron(0 13 ? * MON-FRI *)",
+    "State": "ENABLED",
+    "EventBusName": "default"
+  },
+  "Target": {
+    "Id": "stock-predictor-ecs-target",
+    "Arn": "arn:aws:ecs:us-east-1:ACCOUNT_ID:cluster/stock-predictor-cluster",
+    "RoleArn": "arn:aws:iam::ACCOUNT_ID:role/ecsEventsRole",
+    "EcsParameters": {
+      "TaskDefinitionArn": "arn:aws:ecs:us-east-1:ACCOUNT_ID:task-definition/stock-predictor",
+      "TaskCount": 1,
+      "LaunchType": "FARGATE",
+      "PlatformVersion": "LATEST",
+      "NetworkConfiguration": {
+        "awsvpcConfiguration": {
+          "Subnets": [
+            "REPLACE_WITH_SUBNET_1",
+            "REPLACE_WITH_SUBNET_2"
+          ],
+          "SecurityGroups": [
+            "REPLACE_WITH_SECURITY_GROUP"
+          ],
+          "AssignPublicIp": "ENABLED"
+        }
+      }
+    }
+  },
+  "Notes": {
+    "schedule": "cron(0 13 ? * MON-FRI *) = 9 AM ET (during EDT, UTC-4). During EST (Nov-Mar), 9 AM ET = 2 PM UTC = cron(0 14 ? * MON-FRI *). Adjust if needed.",
+    "public_ip": "ENABLED because we use the default VPC with public subnets and no NAT Gateway. The task needs internet access to call the yfinance API.",
+    "setup_steps": [
+      "1. Replace ACCOUNT_ID with your 12-digit AWS account ID",
+      "2. Replace REPLACE_WITH_SUBNET_* with your default VPC subnet IDs",
+      "3. Replace REPLACE_WITH_SECURITY_GROUP with your default VPC security group ID",
+      "4. Create the rule via AWS Console (EventBridge > Rules) or CLI"
+    ]
+  }
+}

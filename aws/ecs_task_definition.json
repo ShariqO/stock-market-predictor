@@ -1,0 +1,38 @@
+{
+  "family": "stock-predictor",
+  "networkMode": "awsvpc",
+  "requiresCompatibilities": ["FARGATE"],
+  "cpu": "256",
+  "memory": "512",
+  "executionRoleArn": "arn:aws:iam::ACCOUNT_ID:role/stock-predictor-ecs-execution-role",
+  "taskRoleArn": "arn:aws:iam::ACCOUNT_ID:role/stock-predictor-task-role",
+  "containerDefinitions": [
+    {
+      "name": "stock-predictor",
+      "image": "ACCOUNT_ID.dkr.ecr.us-east-1.amazonaws.com/stock-predictor:latest",
+      "essential": true,
+      "command": ["python", "main_orchestrator.py"],
+      "environment": [
+        { "name": "MODE", "value": "aws" },
+        { "name": "S3_BUCKET", "value": "REPLACE_WITH_YOUR_BUCKET" },
+        { "name": "AWS_DEFAULT_REGION", "value": "us-east-1" },
+        { "name": "GLUE_DATABASE", "value": "stock_predictor" },
+        { "name": "LOG_LEVEL", "value": "INFO" }
+      ],
+      "logConfiguration": {
+        "logDriver": "awslogs",
+        "options": {
+          "awslogs-group": "/ecs/stock-predictor",
+          "awslogs-region": "us-east-1",
+          "awslogs-stream-prefix": "pipeline"
+        }
+      },
+      "healthCheck": null,
+      "portMappings": []
+    }
+  ],
+  "runtimePlatform": {
+    "cpuArchitecture": "X86_64",
+    "operatingSystemFamily": "LINUX"
+  }
+}

@@ -1,0 +1,155 @@
+# ============================================================
+# NASDAQ Day Trading Predictor — CI/CD Pipeline
+# ============================================================
+# Triggered on:
+#   - Push to main branch
+#   - Manual workflow dispatch
+#
+# Jobs:
+#   1. test    — Run unit tests
+#   2. build   — Build Docker image + push to ECR
+#   3. deploy  — Register new ECS task definition
+# ============================================================
+
+name: Deploy Stock Predictor
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      run_deploy:
+        description: 'Deploy to ECS after build'
+        required: false
+        default: 'false'
+        type: choice
+        options:
+          - 'true'
+          - 'false'
+
+env:
+  AWS_REGION: us-east-1
+  ECR_REPOSITORY: stock-predictor
+  ECS_CLUSTER: stock-predictor-cluster
+  ECS_TASK_FAMILY: stock-predictor
+
+jobs:
+  # ── Job 1: Test ─────────────────────────────────────────
+  test:
+    name: Run Tests
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run unit tests
+        run: pytest tests/ -v --tb=short
+
+      - name: Syntax check
+        run: python -m py_compile main_orchestrator.py
+
+  # ── Job 2: Build + Push to ECR ──────────────────────────
+  build:
+    name: Build & Push Docker Image
+    needs: test
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main'
+    outputs:
+      image_uri: ${{ steps.build-image.outputs.image }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Build, tag, and push image to ECR
+        id: build-image
+        env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          IMAGE_TAG: ${{ github.sha }}
+        run: |
+          # Build the Docker image
+          docker build -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG .
+          docker tag $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG $ECR_REGISTRY/$ECR_REPOSITORY:latest
+
+          # Push both tags
+          docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
+          docker push $ECR_REGISTRY/$ECR_REPOSITORY:latest
+
+          echo "image=$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG" >> $GITHUB_OUTPUT
+          echo "✅ Image pushed: $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG"
+
+  # ── Job 3: Deploy to ECS ────────────────────────────────
+  deploy:
+    name: Deploy to ECS
+    needs: build
+    runs-on: ubuntu-latest
+    if: |
+      github.ref == 'refs/heads/main' &&
+      (github.event.inputs.run_deploy == 'true' || github.event_name == 'push')
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Update ECS task definition
+        env:
+          ECR_REGISTRY: ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com
+          S3_BUCKET: ${{ secrets.S3_BUCKET }}
+          EXECUTION_ROLE_ARN: ${{ secrets.EXECUTION_ROLE_ARN }}
+          TASK_ROLE_ARN: ${{ secrets.TASK_ROLE_ARN }}
+        run: |
+          # Generate task definition from template
+          cat aws/ecs_task_definition.json \
+            | sed "s|ACCOUNT_ID|${{ secrets.AWS_ACCOUNT_ID }}|g" \
+            | sed "s|REPLACE_WITH_YOUR_BUCKET|$S3_BUCKET|g" \
+            > /tmp/task-def.json
+
+          # Register new task definition
+          aws ecs register-task-definition \
+            --cli-input-json file:///tmp/task-def.json \
+            --region ${{ env.AWS_REGION }}
+
+          echo "✅ Task definition registered"
+
+      - name: Run ECS task (one-off pipeline execution)
+        if: github.event.inputs.run_deploy == 'true'
+        env:
+          VPC_SUBNETS: ${{ secrets.VPC_SUBNETS }}
+          SECURITY_GROUP: ${{ secrets.SECURITY_GROUP }}
+        run: |
+          # Run the pipeline as a one-off Fargate task
+          aws ecs run-task \
+            --cluster $ECS_CLUSTER \
+            --task-definition $ECS_TASK_FAMILY \
+            --launch-type FARGATE \
+            --network-configuration "awsvpcConfiguration={subnets=[$VPC_SUBNETS],securityGroups=[$SECURITY_GROUP],assignPublicIp=ENABLED}" \
+            --region ${{ env.AWS_REGION }}
+
+          echo "✅ ECS task started"
