@@ -27,7 +27,6 @@
           "awslogs-stream-prefix": "pipeline"
         }
       },
-      "healthCheck": null,
       "portMappings": []
     }
   ],

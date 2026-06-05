@@ -16,7 +16,7 @@ from sklearn.preprocessing import StandardScaler
 from sklearn.linear_model import LogisticRegression
 
 from pipeline.config import (
-    setup_logger, get_model_config, lake_path
+    setup_logger, get_model_config, lake_path, get_mode
 )
 from pipeline.utils import (
     write_parquet, write_csv, read_parquet, get_today_str
@@ -352,17 +352,32 @@ def run_train_predict(target_date: str = None) -> tuple[pd.DataFrame, pd.DataFra
 
     pred_path = lake_path("gold", "predictions", target_date)
     write_parquet(top_predictions, pred_path)
-    write_csv(top_predictions, pred_path)
 
-    # Also write all predictions for dashboard use
-    write_parquet(predictions, pred_path, filename="all_predictions.parquet")
-    write_csv(predictions, pred_path, filename="all_predictions.csv")
+    # All scored tickers — stored in a separate dataset so Athena
+    # only reads top-5 from gold/predictions/
+    all_pred_path = lake_path("gold", "all_predictions", target_date)
+    write_parquet(predictions, all_pred_path)
 
     # Metrics
     if not metrics_df.empty:
         metrics_path = lake_path("gold", "model_metrics", target_date)
         write_parquet(metrics_df, metrics_path)
-        write_csv(metrics_df, metrics_path)
+
+    # CSV copies — in AWS mode, write to a separate gold_csv/ prefix
+    # so Athena doesn't try to read CSVs as Parquet
+    if get_mode() == "aws":
+        csv_pred_path = lake_path("gold_csv", "predictions", target_date)
+        csv_all_path = lake_path("gold_csv", "all_predictions", target_date)
+        csv_metrics_path = lake_path("gold_csv", "model_metrics", target_date)
+    else:
+        csv_pred_path = pred_path
+        csv_all_path = all_pred_path
+        csv_metrics_path = lake_path("gold", "model_metrics", target_date)
+
+    write_csv(top_predictions, csv_pred_path)
+    write_csv(predictions, csv_all_path, filename="all_predictions.csv")
+    if not metrics_df.empty:
+        write_csv(metrics_df, csv_metrics_path)
 
     logger.info(f"✅ Gold layer complete: {len(top_predictions)} top picks, "
                 f"{len(metrics_df)} backtest days → dt={target_date}")

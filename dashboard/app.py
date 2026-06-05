@@ -183,14 +183,24 @@ def load_predictions(lake_root: Path) -> tuple[pd.DataFrame, list[str]]:
 @st.cache_data(ttl=300)
 def load_all_predictions(lake_root: Path) -> pd.DataFrame:
     """Load all scored predictions (not just top 5)."""
-    pred_base = lake_root / "gold" / "predictions"
+    # New path: gold/all_predictions/ (separate from gold/predictions/)
+    pred_base = lake_root / "gold" / "all_predictions"
+
+    # Fall back to old path for backward compatibility
+    if not pred_base.exists():
+        pred_base = lake_root / "gold" / "predictions"
+
     if not pred_base.exists():
         return pd.DataFrame()
 
     frames = []
     for d in sorted(pred_base.iterdir()):
         if d.is_dir() and d.name.startswith("dt="):
-            path = d / "all_predictions.parquet"
+            # Try new layout: data.parquet in gold/all_predictions/
+            path = d / "data.parquet"
+            if not path.exists():
+                # Fall back to old layout: all_predictions.parquet
+                path = d / "all_predictions.parquet"
             if path.exists():
                 df = pd.read_parquet(path)
                 if "as_of_date" not in df.columns:
