@@ -115,7 +115,7 @@ SILVER_FEATURES_COLUMNS = [
     {"Name": "high", "Type": "double"},
     {"Name": "low", "Type": "double"},
     {"Name": "close", "Type": "double"},
-    {"Name": "volume", "Type": "bigint"},
+    {"Name": "volume", "Type": "double"},  # yfinance returns float64
     {"Name": "vol_avg_5d", "Type": "double"},
     {"Name": "vol_avg_20d", "Type": "double"},
     {"Name": "vol_spike_ratio", "Type": "double"},
@@ -149,7 +149,7 @@ GOLD_PREDICTIONS_COLUMNS = [
     {"Name": "high", "Type": "double"},
     {"Name": "low", "Type": "double"},
     {"Name": "close", "Type": "double"},
-    {"Name": "volume", "Type": "bigint"},
+    {"Name": "volume", "Type": "double"},  # yfinance returns float64
     {"Name": "name", "Type": "string"},
     {"Name": "sector", "Type": "string"},
     {"Name": "industry", "Type": "string"},
