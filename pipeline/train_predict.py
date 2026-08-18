@@ -262,7 +262,7 @@ def run_backtest(df: pd.DataFrame, top_k: int = 5,
                 valid_mask = ~np.isnan(top_k_actual)
                 if valid_mask.sum() > 0:
                     precision_at_k = top_k_actual[valid_mask].mean()
-                    hit = int(top_k_actual[valid_mask].sum() > 0)
+                    hit = float(int(top_k_actual[valid_mask].sum() > 0))
                 else:
                     precision_at_k = np.nan
                     hit = np.nan
@@ -271,11 +271,11 @@ def run_backtest(df: pd.DataFrame, top_k: int = 5,
                 hit = np.nan
 
             metrics_records.append({
-                "as_of_date": test_date,
-                "precision_at_5": precision_at_k,
-                "hit_rate": hit,
-                "num_tickers_scored": len(test_data),
-                "positive_rate": y_train.mean() if len(y_train) > 0 else 0,
+                "as_of_date": str(test_date),
+                "precision_at_5": float(precision_at_k) if not np.isnan(precision_at_k) else np.nan,
+                "hit_rate": float(hit) if not np.isnan(hit) else np.nan,
+                "num_tickers_scored": int(len(test_data)),
+                "positive_rate": float(y_train.mean()) if len(y_train) > 0 else 0.0,
             })
 
         except Exception as e:
