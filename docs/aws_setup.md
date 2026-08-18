@@ -211,7 +211,7 @@ git push -u origin main
 4. Click **Create bucket**
 
 ```
-📝 YOUR S3 BUCKET NAME: stock-predictor-lake-503026942580-us-east-1-an
+📝 YOUR S3 BUCKET NAME: stock-predictor-lake-YOUR_ACCOUNT_ID-us-east-1
 ```
 
 ### Verify
@@ -241,8 +241,8 @@ aws s3 ls s3://<your-bucket-name>/
 6. Note the **URI** shown (e.g., `123456789012.dkr.ecr.us-east-1.amazonaws.com/stock-predictor`)
 
 ```
-📝 YOUR ECR REPOSITORY URI: 503026942580.dkr.ecr.us-east-1.amazonaws.com/stock-predictor
-📝 YOUR ECR REGISTRY (without /stock-predictor): 503026942580.dkr.ecr.us-east-1.amazonaws.com
+📝 YOUR ECR REPOSITORY URI: 123456789012.dkr.ecr.us-east-1.amazonaws.com/stock-predictor
+📝 YOUR ECR REGISTRY (without /stock-predictor): 123456789012.dkr.ecr.us-east-1.amazonaws.com
 ```
 
 ### Verify
@@ -275,7 +275,7 @@ This role allows ECS to pull Docker images from ECR and write logs to CloudWatch
 11. Note the **Role ARN** (e.g., `arn:aws:iam::123456789012:role/stock-predictor-ecs-execution-role`)
 
 ```
-📝 EXECUTION ROLE ARN: arn:aws:iam::503026942580:role/stock-predictor-ecs-execution-role
+📝 EXECUTION ROLE ARN: arn:aws:iam::123456789012:role/stock-predictor-ecs-execution-role
 ```
 
 ### 7b. ECS Task Role
@@ -298,7 +298,7 @@ This role gives your pipeline code permission to access S3, Glue, and Athena.
 10. Note the **Role ARN**
 
 ```
-📝 TASK ROLE ARN: arn:aws:iam::503026942580:role/stock-predictor-task-role
+📝 TASK ROLE ARN: arn:aws:iam::123456789012:role/stock-predictor-task-role
 ```
 
 ### 7c. CI/CD IAM User (for GitHub Actions)
@@ -541,7 +541,7 @@ aws ec2 describe-vpcs --filters "Name=is-default,Values=true" --region us-east-1
 ```bash
 # Find subnets in the default VPC
 aws ec2 describe-subnets \
-  --filters "Name=vpc-id,Values=vpc-0359052038bb90aa7" \
+  --filters "Name=vpc-id,Values=vpc-xxxxxxxxx" \
   --region us-east-1 \
   --query "Subnets[*].[SubnetId,AvailabilityZone]" \
   --output table
@@ -549,20 +549,20 @@ aws ec2 describe-subnets \
 
 ```
 📝 YOUR SUBNET IDs (pick 2):
-  Subnet 1: subnet-02d3943e622b6ac11
-  Subnet 2: subnet-0f9633dba285c3c61
+  Subnet 1: subnet-xxxxxxxxx1
+  Subnet 2: subnet-xxxxxxxxx2
 ```
 
 ```bash
 # Find the default security group
 aws ec2 describe-security-groups \
-  --filters "Name=vpc-id,Values=vpc-0359052038bb90aa7" "Name=group-name,Values=default" \
+  --filters "Name=vpc-id,Values=vpc-xxxxxxxxx" "Name=group-name,Values=default" \
   --region us-east-1 \
   --query "SecurityGroups[0].GroupId" --output text
 ```
 
 ```
-📝 YOUR DEFAULT SECURITY GROUP ID: sg-00e4aa779e8f8a78d
+📝 YOUR DEFAULT SECURITY GROUP ID: sg-xxxxxxxxx
 ```
 
 > The default security group allows all outbound traffic (needed for yfinance API calls). No inbound rules are needed since the pipeline doesn't serve traffic.
@@ -578,7 +578,7 @@ CHECKLIST — ALL VALUES REQUIRED BEFORE DEPLOYMENT
 ═══════════════════════════════════════════════════
 
 AWS Account:
-  [ ] Account ID:           503026942580
+  [ ] Account ID:           123456789012
   [ ] Region:               us-east-1
 
 AWS CLI:
@@ -586,15 +586,15 @@ AWS CLI:
   [ ] aws sts get-caller-identity works: Yes
 
 S3:
-  [ ] Bucket name:          stock-predictor-lake-503026942580-us-east-1-an
+  [ ] Bucket name:          stock-predictor-lake-YOUR_ACCOUNT_ID-us-east-1
 
 ECR:
-  [ ] Repository URI:       503026942580.dkr.ecr.us-east-1.amazonaws.com/stock-predictor
-  [ ] Registry URL:         503026942580.dkr.ecr.us-east-1.amazonaws.com
+  [ ] Repository URI:       123456789012.dkr.ecr.us-east-1.amazonaws.com/stock-predictor
+  [ ] Registry URL:         123456789012.dkr.ecr.us-east-1.amazonaws.com
 
 IAM Roles:
-  [ ] Execution Role ARN:   arn:aws:iam::503026942580:role/stock-predictor-ecs-execution-role
-  [ ] Task Role ARN:        arn:aws:iam::503026942580:role/stock-predictor-task-role
+  [ ] Execution Role ARN:   arn:aws:iam::123456789012:role/stock-predictor-ecs-execution-role
+  [ ] Task Role ARN:        arn:aws:iam::123456789012:role/stock-predictor-task-role
 
 IAM CI/CD User:
   [ ] Access Key ID:        REPLACE_WITH_YOUR_CICD_KEY_ID
@@ -614,17 +614,17 @@ Glue:
 
 Athena:
   [ ] Workgroup:            stock-predictor-workgroup
-  [ ] Results location:     s3://stock-predictor-lake-503026942580-us-east-1-an/athena-results/
+  [ ] Results location:     s3://stock-predictor-lake-YOUR_ACCOUNT_ID-us-east-1/athena-results/
   [ ] Workgroup created:    Yes
 
 VPC/Networking:
-  [ ] Default VPC ID:       vpc-0359052038bb90aa7
-  [ ] Subnet 1:             subnet-02d3943e622b6ac11
-  [ ] Subnet 2:             subnet-0f9633dba285c3c61
-  [ ] Security Group:       sg-00e4aa779e8f8a78d
+  [ ] Default VPC ID:       vpc-xxxxxxxxx
+  [ ] Subnet 1:             subnet-xxxxxxxxx1
+  [ ] Subnet 2:             subnet-xxxxxxxxx2
+  [ ] Security Group:       sg-xxxxxxxxx
 
 GitHub:
-  [ ] Repository URL:       https://github.com/ShariqO/stock-market-predictor
+  [ ] Repository URL:       https://github.com/YOUR_GITHUB_USERNAME/stock-market-predictor
   [ ] All 10 secrets added: Yes
 
 Local .env:
