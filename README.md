@@ -1,317 +1,185 @@
-# NASDAQ Day Trading Predictor 📈
+# NASDAQ Day Trading Predictor
 
-> **AI-powered stock prediction pipeline** — a production-grade, AWS-native data engineering + ML application that ingests daily NASDAQ OHLCV data, engineers 20+ technical features, trains a predictive model, and outputs the Top 5 stocks with the highest probability of a ≥$1 intraday gain — scheduled serverlessly on ECS Fargate and queryable via Athena + Power BI.
+A daily batch pipeline that ingests NASDAQ OHLCV data, engineers technical features, trains a classifier, and writes the top five tickers by predicted probability of a $1 or greater intraday gain. Runs on ECS Fargate, stores everything in a partitioned S3 data lake, and is queryable through Athena.
 
-⚠️ **Disclaimer**: This project is for **educational and portfolio demonstration purposes only**. It is NOT financial advice. Stock predictions are inherently uncertain. Never invest money you cannot afford to lose.
+> **Not financial advice.** This is a learning project. The model is a logistic regression on technical indicators, which is not a serious approach to trading. Do not put money behind it.
 
----
+## What it does
 
-## 🎯 Project Purpose
+1. Pulls daily OHLCV for roughly 100 filtered NASDAQ tickers via `yfinance`
+2. Enriches with sector and industry metadata
+3. Engineers 20+ technical features (RSI, ATR, volume spikes, SMAs, gaps)
+4. Trains a logistic regression to predict a ≥$1 intraday move
+5. Writes the top five picks with probabilities to the gold layer in S3
+6. Registers tables in the Glue Data Catalog for Athena and Power BI
 
-This project demonstrates **production-grade data engineering and ML engineering skills** for a resume/portfolio. The full AWS-native stack is live and running:
+Universe is filtered to Technology, Healthcare, and Gaming.
 
-1. **Ingests** daily NASDAQ OHLCV data via yfinance
-2. **Enriches** ticker metadata with sector/industry classification
-3. **Engineers** 20+ technical features (RSI, ATR, volume spikes, SMAs, gap analysis)
-4. **Trains** a Logistic Regression model to predict ≥$1 intraday moves
-5. **Outputs** the Top 5 daily picks with probabilities to S3 (Gold layer)
-6. **Stores** all data in a Hive-partitioned S3 data lake (Bronze → Silver → Gold)
-7. **Queries** results via Athena SQL and exposes them to Power BI
-8. **Schedules** automatically via EventBridge every weekday at 9 AM ET
-9. **Deploys** containerized via ECS Fargate (CI/CD via GitHub Actions + ECR)
-10. **Visualizes** results in both a local Streamlit dashboard and Power BI
+## Architecture
 
-Target sectors: **Technology**, **Healthcare**, **Gaming/Interactive Entertainment**
+Local mode:
 
----
-
-## 🏗️ Architecture
-
-### Local Mode (`MODE=local`)
 ```
-yfinance API → main_orchestrator.py → _lake/ (Bronze/Silver/Gold) → Streamlit Dashboard
+yfinance → main_orchestrator.py → _lake/ (bronze/silver/gold) → Streamlit
 ```
 
-### AWS Mode (`MODE=aws`) — Production
+AWS mode:
+
 ```
-EventBridge (weekday 9 AM ET)
+EventBridge (weekdays, 9am ET)
         │
         ▼
-ECS Fargate Task (Docker image from ECR)
+ECS Fargate task (image from ECR)
         │
         ▼
-yfinance API → main_orchestrator.py
+yfinance → main_orchestrator.py
         │
-        ├──▶ S3: bronze/prices/dt=YYYY-MM-DD/         (raw OHLCV Parquet)
-        ├──▶ S3: bronze/tickers/dt=YYYY-MM-DD/        (ticker metadata Parquet)
-        ├──▶ S3: silver/features/dt=YYYY-MM-DD/       (feature-engineered Parquet)
-        ├──▶ S3: gold/predictions/dt=YYYY-MM-DD/      (Top 5 picks Parquet)
-        ├──▶ S3: gold/all_predictions/dt=YYYY-MM-DD/  (all scored tickers Parquet)
-        └──▶ S3: gold/model_metrics/dt=YYYY-MM-DD/    (backtest metrics Parquet)
+        ├──▶ s3://.../bronze/prices/dt=YYYY-MM-DD/
+        ├──▶ s3://.../bronze/tickers/dt=YYYY-MM-DD/
+        ├──▶ s3://.../silver/features/dt=YYYY-MM-DD/
+        ├──▶ s3://.../gold/predictions/dt=YYYY-MM-DD/
+        ├──▶ s3://.../gold/all_predictions/dt=YYYY-MM-DD/
+        └──▶ s3://.../gold/model_metrics/dt=YYYY-MM-DD/
                  │
                  ▼
-         Glue Data Catalog (3 tables)
-                 │
-                 ▼
-         Athena SQL ──▶ Power BI Desktop
+         Glue Data Catalog → Athena → Power BI
 ```
 
----
+Everything is Hive-partitioned Parquet. The same orchestrator runs in both modes; `pipeline/utils.py` switches the I/O layer between local disk and S3 based on `MODE`.
 
-## 🛠️ Tech Stack
+## Stack
 
 | Layer | Technology |
-|-------|-----------|
+|---|---|
 | Language | Python 3.11 |
-| Data Ingestion | yfinance |
-| Data Processing | pandas, NumPy |
-| ML Model | scikit-learn (LogisticRegression + SimpleImputer + StandardScaler) |
-| Storage (Local) | Parquet (PyArrow) + CSV |
-| Storage (Cloud) | AWS S3 (Hive-partitioned Parquet) |
-| Data Catalog | AWS Glue Data Catalog |
-| Query Engine | AWS Athena |
-| Scheduling | AWS EventBridge (cron weekdays 9 AM ET) |
-| Compute | AWS ECS Fargate (0.25 vCPU, 512 MB) |
-| Container Registry | AWS ECR |
-| Logging | AWS CloudWatch |
+| Ingestion | yfinance |
+| Processing | pandas, NumPy |
+| Model | scikit-learn (SimpleImputer → StandardScaler → LogisticRegression) |
+| Storage | S3, Hive-partitioned Parquet |
+| Catalog | AWS Glue |
+| Query | AWS Athena |
+| Scheduling | EventBridge |
+| Compute | ECS Fargate (0.25 vCPU, 512 MB) |
+| Registry | ECR |
 | CI/CD | GitHub Actions |
-| Dashboard | Streamlit + Plotly (local) / Power BI (cloud) |
-| Configuration | YAML + python-dotenv |
-| Testing | pytest (20 tests) |
+| Dashboards | Streamlit (local), Power BI (via Athena ODBC) |
+| Tests | pytest |
 
----
+## On the backtest numbers
 
-## ☁️ AWS Resources Deployed
+The 30-day walk-forward backtest reports average precision@5 around 96% and a hit rate near 100%. **Treat those numbers with suspicion rather than as a result.**
 
-| Resource | Name | Status |
-|----------|------|--------|
-| S3 Bucket | `stock-predictor-lake-{account}-us-east-1-an` | ✅ Active |
-| ECR Repository | `stock-predictor` | ✅ Image pushed |
-| ECS Cluster | `stock-predictor-cluster` | ✅ Active |
-| ECS Task Definition | `stock-predictor:1` (Fargate) | ✅ Registered |
-| CloudWatch Log Group | `/ecs/stock-predictor` | ✅ Logging |
-| Glue Database | `stock_predictor` | ✅ 3 tables |
-| Athena Workgroup | `stock-predictor-workgroup` | ✅ Querying |
-| EventBridge Rule | `stock-predictor-weekday-9am` | ✅ Enabled |
+Two things inflate them. First, the target is loose: a $1 intraday range on a stock trading above $100 is common, so the positive class is not rare and a naive model scores well. Second, only five picks per day are evaluated, and those are the five the model is most confident about, so precision@5 measures the easiest slice of the distribution.
 
----
+A fair evaluation would need a dollar-neutral target, a benchmark comparison against picking randomly from the same universe, and transaction cost assumptions. I haven't done that. The pipeline is the point here, not the model.
 
-## 📁 S3 Data Lake Layout
-
-```
-s3://{bucket}/
-├── bronze/
-│   ├── prices/dt=YYYY-MM-DD/data.parquet       # Raw OHLCV from yfinance
-│   └── tickers/dt=YYYY-MM-DD/data.parquet      # Ticker sector/industry metadata
-├── silver/
-│   └── features/dt=YYYY-MM-DD/data.parquet     # 20+ engineered features
-├── gold/
-│   ├── predictions/dt=YYYY-MM-DD/data.parquet  # Top 5 picks (Athena table)
-│   ├── all_predictions/dt=YYYY-MM-DD/          # All scored tickers
-│   └── model_metrics/dt=YYYY-MM-DD/            # Backtest metrics (Athena table)
-└── gold_csv/                                   # CSV copies for Power BI direct download
-    ├── predictions/dt=YYYY-MM-DD/data.csv
-    └── model_metrics/dt=YYYY-MM-DD/data.csv
-```
-
----
-
-## 🚀 Local Run Instructions
-
-### Prerequisites
-
-- Python 3.10+
-- Docker Desktop (for containerized runs)
-
-### Setup
+## Running locally
 
 ```bash
-# Clone the repository
 git clone https://github.com/ShariqO/stock-market-predictor.git
 cd stock-market-predictor
 
-# Create virtual environment
 python -m venv venv
-source venv/bin/activate  # macOS/Linux
-# venv\Scripts\activate   # Windows
-
-# Install dependencies
+source venv/bin/activate
 pip install -r requirements.txt
 
-# Create .env file
-cp .env.example .env
-# Edit .env and set MODE=local (default)
-```
-
-### Run the Pipeline (Local Mode)
-
-```bash
-# Run the full pipeline end-to-end
+cp .env.example .env     # MODE=local is the default
 python main_orchestrator.py
-
-# Or run individual steps
-python jobs/job_ingest_prices.py    # Step 1: Download prices
-python jobs/job_build_features.py   # Step 2: Engineer features
-python jobs/job_predict.py          # Step 3: Train + predict
 ```
 
-### Run the Pipeline (AWS Mode)
+Individual steps:
 
 ```bash
-# Requires AWS credentials in .env
-MODE=aws python main_orchestrator.py
+python jobs/job_ingest_prices.py     # bronze
+python jobs/job_build_features.py    # silver
+python jobs/job_predict.py           # gold
 ```
 
-### Run Tests
+Tests:
 
 ```bash
 pytest tests/test_validate.py -v
-# Expected: 20/20 passed
 ```
 
----
-
-## 🐳 Docker Instructions
+Docker:
 
 ```bash
-# Build the image
 docker compose build
-
-# Run the full pipeline
 docker compose run predictor python main_orchestrator.py
-
-# Start the Streamlit dashboard
-docker compose up dashboard
-# Open http://localhost:8501 in your browser
+docker compose up dashboard          # localhost:8501
 ```
 
----
+## AWS mode
 
-## 📊 Streamlit Dashboard
+Needs credentials in `.env` and the infrastructure in `aws/` provisioned. Setup is in `docs/aws_setup.md`.
 
-The dashboard shows four tabs:
-
-1. **🏆 Top 5 Picks** — Daily picks with ticker, sector, probability, close price, key features
-2. **📊 Probability Analysis** — Bar chart of top 20 tickers + probability cutoff
-3. **🏭 Sector Breakdown** — Donut chart of picks by sector
-4. **📈 Model Performance** — Precision@5 and hit rate over time
+Deployed resources: an S3 bucket for the lake, an ECR repository, an ECS cluster and Fargate task definition, a CloudWatch log group, a Glue database with three tables, an Athena workgroup, and an EventBridge rule firing weekdays at 9am ET.
 
 ```bash
-streamlit run dashboard/app.py
-# Open http://localhost:8501
+MODE=aws python main_orchestrator.py
 ```
 
----
+## Athena
 
-## 🔍 Athena SQL Queries
-
-Sample queries against the live S3 data lake (see `sql/athena_queries.sql` for all 9):
+Full query set is in `sql/athena_queries.sql`.
 
 ```sql
--- Today's Top 5 picks
+-- today's picks
 SELECT rank, ticker, sector, ROUND(predicted_probability, 4) AS prob, last_close, as_of_date
 FROM stock_predictor.gold_predictions
 WHERE rank <= 5
 ORDER BY rank;
 
--- 30-day model performance
+-- model performance over the last 30 days
 SELECT as_of_date, ROUND(precision_at_5, 3) AS precision, hit_rate
 FROM stock_predictor.gold_model_metrics
 ORDER BY as_of_date DESC
 LIMIT 30;
 ```
 
----
+## CI/CD
 
-## 📊 Power BI Connection
+On push to `main`, `.github/workflows/deploy.yml` runs pytest, builds the image for `linux/amd64`, pushes to ECR tagged `latest` and the git SHA, then registers a new ECS task definition revision.
 
-Power BI Desktop (Windows) connects directly to Athena via the ODBC driver — no local data download required.
-
-See [docs/powerbi_setup.md](docs/powerbi_setup.md) for full instructions.
-
----
-
-## 🔁 CI/CD Pipeline (GitHub Actions)
-
-On every push to `main`, the workflow in `.github/workflows/deploy.yml`:
-
-1. **Test** — runs `pytest` (20 tests)
-2. **Build** — builds Docker image for `linux/amd64`
-3. **Push** — pushes image to ECR with `latest` + git SHA tag
-4. **Deploy** — registers new ECS task definition revision
-
----
-
-## 🧪 Features Engineered
+## Features
 
 | Feature | Description |
-|---------|-------------|
-| `vol_avg_5d` / `vol_avg_20d` | Rolling average volume |
-| `vol_spike_ratio` | Today's volume / 20-day avg |
+|---|---|
+| `vol_avg_5d`, `vol_avg_20d` | Rolling average volume |
+| `vol_spike_ratio` | Today's volume over the 20-day average |
 | `atr_14d` | 14-day Average True Range |
-| `volatility_20d` | 20-day rolling std of returns |
+| `volatility_20d` | 20-day rolling standard deviation of returns |
 | `rsi_14d` | 14-period Relative Strength Index |
-| `sma_5d/10d/20d/50d` | Simple Moving Averages |
-| `price_vs_sma*` | Price distance from moving averages |
-| `return_1d/3d/5d` | Short-term price returns |
-| `gap` | Overnight gap (open vs previous close) |
-| `intraday_range` / `intraday_range_pct` | High − Low (absolute + %) |
+| `sma_5d`, `sma_10d`, `sma_20d`, `sma_50d` | Simple moving averages |
+| `price_vs_sma*` | Distance from each moving average |
+| `return_1d`, `return_3d`, `return_5d` | Short-term returns |
+| `gap` | Open versus previous close |
+| `intraday_range`, `intraday_range_pct` | High minus low |
 | `daily_return` | Same-day return |
 
----
-
-## 📋 Project Structure
+## Project structure
 
 ```
 .
-├── README.md                    # This file
-├── requirements.txt             # Python dependencies
-├── Dockerfile                   # Container definition
-├── docker-compose.yml           # Multi-service orchestration
-├── .env.example                 # Environment variable template
-├── config.yaml                  # Pipeline configuration
-├── main_orchestrator.py         # Full pipeline runner
-├── pipeline/                    # Core pipeline modules
-│   ├── config.py                # Configuration loader (mode-aware)
-│   ├── utils.py                 # Dual-mode I/O (local ↔ S3)
-│   ├── s3_storage.py            # S3 read/write via boto3
-│   ├── ingest_prices.py         # Bronze: OHLCV ingestion
-│   ├── enrich_tickers.py        # Bronze: Ticker metadata
-│   ├── build_features.py        # Silver: Feature engineering
-│   ├── train_predict.py         # Gold: ML training + prediction
-│   └── validate_data.py         # Data quality checks
-├── jobs/                        # Individual job runners
-├── aws/                         # AWS infrastructure
-│   ├── glue_tables.py           # Glue Data Catalog setup
-│   ├── ecs_task_definition.json # Fargate task definition
-│   └── eventbridge_rule.json    # Weekday schedule config
-├── dashboard/                   # Streamlit reporting (local)
-│   └── app.py
-├── sql/                         # Athena SQL queries
-│   └── athena_queries.sql
-├── .github/workflows/           # CI/CD
-│   └── deploy.yml               # GitHub Actions pipeline
-├── docs/                        # Documentation
-│   ├── architecture.md
-│   ├── aws_setup.md
-│   ├── powerbi_setup.md
-│   └── resume_summary.md
-├── tests/                       # Unit tests
-│   └── test_validate.py
-└── _lake/                       # Local data lake (gitignored)
+├── main_orchestrator.py     # full pipeline runner
+├── config.yaml
+├── pipeline/
+│   ├── config.py            # mode-aware config loader
+│   ├── utils.py             # dual-mode I/O (local ↔ S3)
+│   ├── s3_storage.py
+│   ├── ingest_prices.py     # bronze
+│   ├── enrich_tickers.py    # bronze
+│   ├── build_features.py    # silver
+│   ├── train_predict.py     # gold
+│   └── validate_data.py
+├── jobs/                    # individual job runners
+├── aws/                     # Glue tables, ECS task def, EventBridge rule
+├── dashboard/app.py         # Streamlit
+├── sql/athena_queries.sql
+├── tests/
+└── docs/
 ```
 
----
+## License
 
-## 🧮 Model Performance (Backtest)
-
-- **Algorithm**: Logistic Regression (SimpleImputer → StandardScaler → LogisticRegression)
-- **Training**: Walk-forward on all available historical data before prediction date
-- **Backtest (30 days)**: Avg Precision@5 = **95.9%** | Avg Hit Rate = **100%**
-- **Universe**: ~100 filtered NASDAQ tickers across Technology, Healthcare, and Gaming sectors
-
----
-
-## 📄 License
-
-This project is for educational purposes only. See disclaimer above.
+Educational use. See the disclaimer above.
