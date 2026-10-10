@@ -60,32 +60,53 @@ ORDER BY rank;
 
 
 -- ═══════════════════════════════════════════════════════════
--- QUERY 3: Historical model performance (last 30 days)
+-- QUERY 3: Historical model performance (last 30 days, deduplicated)
 -- ═══════════════════════════════════════════════════════════
 
+WITH deduplicated_metrics AS (
+    SELECT
+        as_of_date,
+        precision_at_5,
+        hit_rate,
+        num_tickers_scored,
+        positive_rate,
+        ROW_NUMBER() OVER (PARTITION BY as_of_date ORDER BY dt DESC) AS row_num
+    FROM stock_predictor.gold_model_metrics
+)
 SELECT
     as_of_date,
-    precision_at_5,
-    hit_rate,
+    ROUND(precision_at_5, 3) AS precision_at_5,
+    ROUND(hit_rate, 3) AS hit_rate,
     num_tickers_scored,
-    positive_rate
-FROM stock_predictor.gold_model_metrics
+    ROUND(positive_rate, 3) AS positive_rate
+FROM deduplicated_metrics
+WHERE row_num = 1
 ORDER BY as_of_date DESC
 LIMIT 30;
 
 
 -- ═══════════════════════════════════════════════════════════
--- QUERY 4: Average model metrics
+-- QUERY 4: Average model metrics (deduplicated across all runs)
 -- ═══════════════════════════════════════════════════════════
 
+WITH deduplicated_metrics AS (
+    SELECT
+        as_of_date,
+        precision_at_5,
+        hit_rate,
+        num_tickers_scored,
+        ROW_NUMBER() OVER (PARTITION BY as_of_date ORDER BY dt DESC) AS row_num
+    FROM stock_predictor.gold_model_metrics
+)
 SELECT
-    COUNT(*) AS days_evaluated,
-    AVG(precision_at_5) AS avg_precision_at_5,
-    AVG(hit_rate) AS avg_hit_rate,
-    MIN(precision_at_5) AS min_precision,
-    MAX(precision_at_5) AS max_precision,
-    AVG(num_tickers_scored) AS avg_tickers_scored
-FROM stock_predictor.gold_model_metrics;
+    COUNT(*) AS unique_days_evaluated,
+    ROUND(AVG(precision_at_5), 3) AS avg_precision_at_5,
+    ROUND(AVG(hit_rate), 3) AS avg_hit_rate,
+    ROUND(MIN(precision_at_5), 3) AS min_precision,
+    ROUND(MAX(precision_at_5), 3) AS max_precision,
+    ROUND(AVG(num_tickers_scored), 0) AS avg_tickers_scored
+FROM deduplicated_metrics
+WHERE row_num = 1;
 
 
 -- ═══════════════════════════════════════════════════════════

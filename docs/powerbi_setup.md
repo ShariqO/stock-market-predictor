@@ -66,6 +66,19 @@ Latest Date = MAX(gold_predictions[as_of_date])
 ```
 3. Filter `as_of_date = [Latest Date]`
 
+### Step 6: Deduplicate Model Metrics (Historical Trend)
+
+Each daily pipeline run writes the last 30 days of backtest metrics into its partition (`dt=YYYY-MM-DD`). To prevent historical dates from repeating across partitions in Power BI:
+
+**In Power Query Editor:**
+1. Select the `gold_model_metrics` table.
+2. Sort the `dt` (partition date) column in **Descending** order.
+3. Right-click the `as_of_date` column header → click **Remove Duplicates**.
+4. Click **Close & Apply**.
+
+*Or in Advanced SQL query via ODBC:*
+Use the deduplicated query from `sql/athena_queries.sql` (Query 3).
+
 ---
 
 ## Option B: Connect via CSV Files (Simpler, No ODBC Driver)

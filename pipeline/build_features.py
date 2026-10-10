@@ -96,6 +96,7 @@ def engineer_features_for_ticker(df: pd.DataFrame) -> pd.DataFrame:
 
     # ── Volatility features ────────────────────────────────
     df["atr_14d"] = compute_atr(df["high"], df["low"], df["close"], atr_period)
+    df["atr_pct"] = df["atr_14d"] / df["close"].replace(0, np.nan)
     df["daily_return"] = df["close"].pct_change()
     df["volatility_20d"] = df["daily_return"].rolling(long, min_periods=long).std()
 

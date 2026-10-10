@@ -28,19 +28,23 @@ logger = setup_logger("pipeline.train_predict")
 # ── Feature column definitions ─────────────────────────────
 
 FEATURE_COLUMNS = [
-    "vol_avg_5d", "vol_avg_20d", "vol_spike_ratio",
-    "atr_14d", "volatility_20d",
+    "vol_spike_ratio",
+    "atr_pct",
+    "volatility_20d",
     "rsi_14d",
-    "sma_5d", "sma_10d", "sma_20d", "sma_50d",
-    "price_vs_sma5", "price_vs_sma20", "price_vs_sma50",
-    "return_1d", "return_3d", "return_5d",
+    "price_vs_sma5",
+    "price_vs_sma20",
+    "price_vs_sma50",
+    "return_1d",
+    "return_3d",
+    "return_5d",
     "gap",
-    "intraday_range", "intraday_range_pct",
+    "intraday_range_pct",
     "daily_return",
 ]
 
 META_COLUMNS = ["ticker", "date", "open", "high", "low", "close", "volume",
-                "name", "sector", "industry"]
+                "name", "sector", "industry", "sector_rank"]
 
 
 def build_ml_pipeline(max_iter: int = 1000,
@@ -66,18 +70,81 @@ def build_ml_pipeline(max_iter: int = 1000,
 def prepare_data(df: pd.DataFrame) -> tuple[pd.DataFrame, list[str]]:
     """
     Prepare the feature matrix, selecting only available feature columns.
+    Computes atr_pct dynamically if not already present.
 
     Returns:
         Tuple of (DataFrame with only feature columns, list of used feature names).
     """
-    available_features = [c for c in FEATURE_COLUMNS if c in df.columns]
+    data = df.copy()
+    if "atr_pct" not in data.columns and "atr_14d" in data.columns and "close" in data.columns:
+        data["atr_pct"] = data["atr_14d"] / data["close"].replace(0, np.nan)
+
+    available_features = [c for c in FEATURE_COLUMNS if c in data.columns]
     if len(available_features) < 5:
         logger.warning(f"Only {len(available_features)} feature columns found")
 
-    return df[available_features], available_features
+    return data[available_features], available_features
 
 
-def train_and_predict(df: pd.DataFrame, prediction_date: str) -> tuple[pd.DataFrame, Pipeline]:
+def select_sector_diversified_top_k(
+    df: pd.DataFrame,
+    top_k: int = 5,
+    allocations: dict[str, int] = None,
+) -> pd.DataFrame:
+    """
+    Select Top K picks ensuring representation across key target sectors:
+    Technology, Healthcare, and Gaming / Communication Services.
+
+    Default allocation for top_k=5:
+      - Technology: 2
+      - Healthcare: 2
+      - Communication Services (Gaming): 1
+
+    Fallback: If any sector has fewer stocks available, fills
+    remaining slots with next-highest probability stocks overall.
+    """
+    if allocations is None:
+        allocations = {
+            "Technology": 2,
+            "Healthcare": 2,
+            "Communication Services": 1,
+        }
+
+    if df.empty:
+        return df
+
+    picks = []
+    chosen_tickers = set()
+
+    for sector, quota in allocations.items():
+        if "sector" in df.columns:
+            sec_df = df[
+                (df["sector"] == sector) & (~df["ticker"].isin(chosen_tickers))
+            ].sort_values("predicted_probability", ascending=False)
+        else:
+            sec_df = pd.DataFrame()
+
+        for _, row in sec_df.head(quota).iterrows():
+            picks.append(row)
+            chosen_tickers.add(row["ticker"])
+
+    # Fallback to fill up to top_k
+    if len(picks) < top_k:
+        remaining = df[~df["ticker"].isin(chosen_tickers)].sort_values(
+            "predicted_probability", ascending=False
+        )
+        for _, row in remaining.head(top_k - len(picks)).iterrows():
+            picks.append(row)
+            chosen_tickers.add(row["ticker"])
+
+    result = pd.DataFrame(picks).sort_values(
+        "predicted_probability", ascending=False
+    ).reset_index(drop=True)
+    result["rank"] = range(1, len(result) + 1)
+    return result
+
+
+def train_and_predict(df: pd.DataFrame, prediction_date: str) -> tuple[pd.DataFrame, pd.DataFrame, Pipeline]:
     """
     Train on historical data, predict on the target date.
 
@@ -86,7 +153,7 @@ def train_and_predict(df: pd.DataFrame, prediction_date: str) -> tuple[pd.DataFr
         prediction_date: The date to generate predictions for.
 
     Returns:
-        Tuple of (predictions DataFrame, fitted Pipeline).
+        Tuple of (all predictions DataFrame, top_picks DataFrame, fitted Pipeline).
     """
     model_cfg = get_model_config()
     top_k = model_cfg.get("top_k", 5)
@@ -97,7 +164,7 @@ def train_and_predict(df: pd.DataFrame, prediction_date: str) -> tuple[pd.DataFr
 
     if train_df.empty:
         logger.error("No training data available!")
-        return pd.DataFrame(), None
+        return pd.DataFrame(), pd.DataFrame(), None
 
     if predict_df.empty:
         # Fall back to the most recent date with data
@@ -133,11 +200,11 @@ def train_and_predict(df: pd.DataFrame, prediction_date: str) -> tuple[pd.DataFr
         probs = pipeline.predict_proba(X_pred)[:, 1]  # P(target=1)
     except Exception as e:
         logger.error(f"Prediction failed: {e}")
-        return pd.DataFrame(), pipeline
+        return pd.DataFrame(), pd.DataFrame(), pipeline
 
     # Build predictions DataFrame
     predictions = predict_df[
-        [c for c in META_COLUMNS if c in predict_df.columns]
+        [c for c in META_COLUMNS if c in predict_df.columns and c != "sector_rank"]
     ].copy()
     predictions["predicted_probability"] = probs
     predictions["as_of_date"] = prediction_date
@@ -148,6 +215,16 @@ def train_and_predict(df: pd.DataFrame, prediction_date: str) -> tuple[pd.DataFr
     ).reset_index(drop=True)
     predictions["rank"] = range(1, len(predictions) + 1)
 
+    # Sector ranking
+    if "sector" in predictions.columns:
+        predictions["sector_rank"] = (
+            predictions.groupby("sector")["predicted_probability"]
+            .rank(ascending=False, method="first")
+            .astype(int)
+        )
+    else:
+        predictions["sector_rank"] = predictions["rank"]
+
     # Add last close
     if "close" in predictions.columns:
         predictions["last_close"] = predictions["close"]
@@ -157,22 +234,31 @@ def train_and_predict(df: pd.DataFrame, prediction_date: str) -> tuple[pd.DataFr
         pipeline, feature_names, X_pred, predictions.index
     )
 
-    # Select top K
-    top_picks = predictions.head(top_k).copy()
+    # Select sector-diversified top K (Tech, Healthcare, Gaming)
+    top_picks = select_sector_diversified_top_k(predictions, top_k)
+    top_tickers = set(top_picks["ticker"])
+    remaining = predictions[~predictions["ticker"].isin(top_tickers)].sort_values(
+        "predicted_probability", ascending=False
+    ).reset_index(drop=True)
+
+    # Order predictions so top picks are ranks 1..top_k, followed by remaining
+    ordered_predictions = pd.concat([top_picks, remaining], ignore_index=True)
+    ordered_predictions["rank"] = range(1, len(ordered_predictions) + 1)
 
     logger.info(f"\n{'='*60}")
-    logger.info(f"  TOP {top_k} PICKS for {prediction_date}")
+    logger.info(f"  TOP {top_k} PICKS for {prediction_date} (Sector-Diversified)")
     logger.info(f"{'='*60}")
     for _, row in top_picks.iterrows():
         ticker = row.get("ticker", "???")
         prob = row.get("predicted_probability", 0)
         sector = row.get("sector", "N/A")
         close = row.get("last_close", 0)
+        s_rank = row.get("sector_rank", 1)
         logger.info(f"  #{int(row['rank'])} {ticker:6s} | "
-                     f"P={prob:.3f} | ${close:.2f} | {sector}")
+                     f"P={prob:.3f} | ${close:.2f} | {sector} (Sector #{s_rank})")
     logger.info(f"{'='*60}\n")
 
-    return predictions, pipeline
+    return ordered_predictions, top_picks, pipeline
 
 
 def _get_top_features(pipeline: Pipeline, feature_names: list[str],
@@ -252,17 +338,17 @@ def run_backtest(df: pd.DataFrame, top_k: int = 5,
             pipeline.fit(X_train, y_train)
             probs = pipeline.predict_proba(X_test)[:, 1]
 
-            # Get top K indices
-            top_indices = np.argsort(probs)[-top_k:]
+            # Select sector-diversified top K picks for evaluation
+            test_data_eval = test_data.copy()
+            test_data_eval["predicted_probability"] = probs
+            top_k_picks = select_sector_diversified_top_k(test_data_eval, top_k)
 
             # Calculate precision@K
-            if y_test is not None and not y_test.isna().all():
-                y_test_arr = y_test.values
-                top_k_actual = y_test_arr[top_indices]
-                valid_mask = ~np.isnan(top_k_actual)
-                if valid_mask.sum() > 0:
-                    precision_at_k = top_k_actual[valid_mask].mean()
-                    hit = float(int(top_k_actual[valid_mask].sum() > 0))
+            if "target" in top_k_picks.columns and not top_k_picks["target"].isna().all():
+                top_k_actual = top_k_picks["target"].dropna().values
+                if len(top_k_actual) > 0:
+                    precision_at_k = top_k_actual.mean()
+                    hit = float(int(top_k_actual.sum() > 0))
                 else:
                     precision_at_k = np.nan
                     hit = np.nan
@@ -337,9 +423,9 @@ def run_train_predict(target_date: str = None) -> tuple[pd.DataFrame, pd.DataFra
     logger.info(f"Prediction target date: {prediction_date}")
 
     # ── Train and predict ──────────────────────────────────
-    predictions, pipeline = train_and_predict(features_df, prediction_date)
+    predictions, top_picks, pipeline = train_and_predict(features_df, prediction_date)
 
-    if predictions.empty:
+    if predictions.empty or top_picks.empty:
         logger.error("No predictions generated!")
         return pd.DataFrame(), pd.DataFrame()
 
@@ -347,8 +433,8 @@ def run_train_predict(target_date: str = None) -> tuple[pd.DataFrame, pd.DataFra
     metrics_df = run_backtest(features_df, top_k=top_k, test_days=test_days)
 
     # ── Write to Gold layer ────────────────────────────────
-    # Predictions — Top K only
-    top_predictions = predictions.head(top_k)
+    # Predictions — Top K only (Sector-Diversified)
+    top_predictions = top_picks
 
     pred_path = lake_path("gold", "predictions", target_date)
     write_parquet(top_predictions, pred_path)

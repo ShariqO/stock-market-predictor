@@ -177,7 +177,10 @@ def load_predictions(lake_root: Path) -> tuple[pd.DataFrame, list[str]]:
     if not frames:
         return pd.DataFrame(), dates
 
-    return pd.concat(frames, ignore_index=True), dates
+    combined = pd.concat(frames, ignore_index=True)
+    if "as_of_date" in combined.columns and "ticker" in combined.columns:
+        combined = combined.drop_duplicates(subset=["as_of_date", "ticker"], keep="last")
+    return combined, dates
 
 
 @st.cache_data(ttl=300)
@@ -209,12 +212,16 @@ def load_all_predictions(lake_root: Path) -> pd.DataFrame:
 
     if not frames:
         return pd.DataFrame()
-    return pd.concat(frames, ignore_index=True)
+
+    combined = pd.concat(frames, ignore_index=True)
+    if "as_of_date" in combined.columns and "ticker" in combined.columns:
+        combined = combined.drop_duplicates(subset=["as_of_date", "ticker"], keep="last")
+    return combined
 
 
 @st.cache_data(ttl=300)
 def load_metrics(lake_root: Path) -> pd.DataFrame:
-    """Load all model metrics from Gold layer."""
+    """Load all model metrics from Gold layer with deduplication."""
     metrics_base = lake_root / "gold" / "model_metrics"
     if not metrics_base.exists():
         return pd.DataFrame()
@@ -229,7 +236,11 @@ def load_metrics(lake_root: Path) -> pd.DataFrame:
 
     if not frames:
         return pd.DataFrame()
-    return pd.concat(frames, ignore_index=True)
+
+    combined = pd.concat(frames, ignore_index=True)
+    if "as_of_date" in combined.columns:
+        combined = combined.drop_duplicates(subset=["as_of_date"], keep="last").sort_values("as_of_date")
+    return combined
 
 
 # ── Main app ───────────────────────────────────────────────
